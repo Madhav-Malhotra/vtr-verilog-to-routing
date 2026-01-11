@@ -146,6 +146,9 @@ class MoveGenerator {
      */
     virtual void process_outcome(double /*reward*/, e_reward_function /*reward_fun*/) {}
 
+    /// Update RL agent state features (only used by SimpleRLMoveGenerator)
+    virtual void update_agent_state(const struct RLStateFeatures& /*features*/) {}
+
     /**
      * @brief Calculates the agent's reward and the total process outcome
      *

@@ -153,6 +153,7 @@ struct t_options {
 
     argparse::ArgValue<bool> RL_agent_placement;
     argparse::ArgValue<bool> place_agent_multistate;
+    argparse::ArgValue<bool> place_rl_multistate_mode;
     argparse::ArgValue<bool> place_checkpointing;
     argparse::ArgValue<float> place_agent_epsilon;
     argparse::ArgValue<float> place_agent_gamma;

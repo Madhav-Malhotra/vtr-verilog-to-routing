@@ -711,6 +711,7 @@ static void setup_placer_opts(const t_options& Options, t_placer_opts* PlacerOpt
     PlacerOpts->place_bounding_box_mode = Options.place_bounding_box_mode;
     PlacerOpts->RL_agent_placement = Options.RL_agent_placement;
     PlacerOpts->place_agent_multistate = Options.place_agent_multistate;
+    PlacerOpts->place_rl_multistate_mode = Options.place_rl_multistate_mode;
     PlacerOpts->place_checkpointing = Options.place_checkpointing;
     PlacerOpts->place_agent_epsilon = Options.place_agent_epsilon;
     PlacerOpts->place_agent_gamma = Options.place_agent_gamma;

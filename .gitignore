@@ -161,3 +161,7 @@ cmake-build-release
 #
 compile_commands.json
 .clangd
+
+# Claude
+.claude/
+CLAUDE.md

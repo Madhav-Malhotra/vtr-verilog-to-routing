@@ -6,9 +6,11 @@
 #include "net_cost_handler.h"
 #include "manual_move_generator.h"
 #include "vtr_random.h"
+#include "rl_state_features.h"
 
 #include <optional>
 #include <tuple>
+#include <deque>
 
 class PlaceMacros;
 class PlacerState;
@@ -216,6 +218,15 @@ class PlacementAnnealer {
     bool outer_loop_update_state();
 
     /**
+     * @brief Compute RL state features for multi-state mode (Phase 1)
+     * @return RLStateFeatures struct with computed features
+     */
+    RLStateFeatures compute_rl_state_features();
+
+    /// Update agent state features in both move generators (Phase 1)
+    void update_move_generator_state_features();
+
+    /**
      * @brief Starts the quench stage in simulated annealing by
      * setting the temperature to zero and reverting the move range limit
      * to the initial value.
@@ -285,6 +296,9 @@ class PlacementAnnealer {
     ///        results from a set of trial swaps.
     float estimate_starting_temp_using_cost_variance_();
 
+    /// @brief Compute average criticality across all connections as a proxy for critical block density
+    float compute_average_criticality_() const;
+
   private:
     const t_placer_opts& placer_opts_;
     PlacerState& placer_state_;
@@ -325,6 +339,13 @@ class PlacementAnnealer {
 
     /// Keep record of moved blocks and affected pins in a swap
     t_pl_blocks_to_be_moved blocks_affected_;
+
+    /// Multi-state RL tracking (Phase 1)
+    std::deque<bool> recent_move_outcomes_;   /// Track recent accepts/rejects for acceptance rate
+    int max_recent_outcomes_ = 100;           /// Number of recent outcomes to track
+    int recent_accepted_count_ = 0;           /// Incremental count of accepted moves in recent_move_outcomes_
+    int moves_since_last_improvement_ = 0;    /// Counter for stagnation detection
+    double last_significant_cost_ = 0.0;      /// init to 0, update on first move
 
   private:
     /**

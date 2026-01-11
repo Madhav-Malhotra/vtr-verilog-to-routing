@@ -90,6 +90,7 @@ std::pair<std::unique_ptr<MoveGenerator>, std::unique_ptr<MoveGenerator>> create
                                                                             num_movable_blocks_per_type);
             }
             karmed_bandit_agent1->set_step(placer_opts.place_agent_gamma, move_lim);
+            karmed_bandit_agent1->set_multistate_mode(placer_opts.place_rl_multistate_mode);
             move_generators.first = std::make_unique<SimpleRLMoveGenerator>(placer_state,
                                                                             place_macros,
                                                                             net_cost_handler,
@@ -98,21 +99,24 @@ std::pair<std::unique_ptr<MoveGenerator>, std::unique_ptr<MoveGenerator>> create
                                                                             karmed_bandit_agent1,
                                                                             noc_attraction_weight,
                                                                             placer_opts.place_high_fanout_net);
-            //agent's 2nd state
-            karmed_bandit_agent2 = std::make_unique<EpsilonGreedyAgent>(second_state_avail_moves,
-                                                                        e_agent_space::MOVE_TYPE,
-                                                                        placer_opts.place_agent_epsilon,
-                                                                        rng,
-                                                                        num_movable_blocks_per_type);
-            karmed_bandit_agent2->set_step(placer_opts.place_agent_gamma, move_lim);
-            move_generators.second = std::make_unique<SimpleRLMoveGenerator>(placer_state,
-                                                                             place_macros,
-                                                                             net_cost_handler,
-                                                                             reward_fun,
-                                                                             rng,
-                                                                             karmed_bandit_agent2,
-                                                                             noc_attraction_weight,
-                                                                             placer_opts.place_high_fanout_net);
+            //agent's 2nd state (only create if NOT in multi-state mode)
+            if (!placer_opts.place_rl_multistate_mode) {
+                karmed_bandit_agent2 = std::make_unique<EpsilonGreedyAgent>(second_state_avail_moves,
+                                                                            e_agent_space::MOVE_TYPE,
+                                                                            placer_opts.place_agent_epsilon,
+                                                                            rng,
+                                                                            num_movable_blocks_per_type);
+                karmed_bandit_agent2->set_step(placer_opts.place_agent_gamma, move_lim);
+                karmed_bandit_agent2->set_multistate_mode(placer_opts.place_rl_multistate_mode);
+                move_generators.second = std::make_unique<SimpleRLMoveGenerator>(placer_state,
+                                                                                 place_macros,
+                                                                                 net_cost_handler,
+                                                                                 reward_fun,
+                                                                                 rng,
+                                                                                 karmed_bandit_agent2,
+                                                                                 noc_attraction_weight,
+                                                                                 placer_opts.place_high_fanout_net);
+            }
         } else {
             std::unique_ptr<SoftmaxAgent> karmed_bandit_agent1, karmed_bandit_agent2;
             //agent's 1st state
@@ -130,6 +134,7 @@ std::pair<std::unique_ptr<MoveGenerator>, std::unique_ptr<MoveGenerator>> create
                                                                       num_movable_blocks_per_type);
             }
             karmed_bandit_agent1->set_step(placer_opts.place_agent_gamma, move_lim);
+            karmed_bandit_agent1->set_multistate_mode(placer_opts.place_rl_multistate_mode);
             move_generators.first = std::make_unique<SimpleRLMoveGenerator>(placer_state,
                                                                             place_macros,
                                                                             net_cost_handler,
@@ -138,20 +143,23 @@ std::pair<std::unique_ptr<MoveGenerator>, std::unique_ptr<MoveGenerator>> create
                                                                             karmed_bandit_agent1,
                                                                             noc_attraction_weight,
                                                                             placer_opts.place_high_fanout_net);
-            //agent's 2nd state
-            karmed_bandit_agent2 = std::make_unique<SoftmaxAgent>(second_state_avail_moves,
-                                                                  e_agent_space::MOVE_TYPE,
-                                                                  rng,
-                                                                  num_movable_blocks_per_type);
-            karmed_bandit_agent2->set_step(placer_opts.place_agent_gamma, move_lim);
-            move_generators.second = std::make_unique<SimpleRLMoveGenerator>(placer_state,
-                                                                             place_macros,
-                                                                             net_cost_handler,
-                                                                             reward_fun,
-                                                                             rng,
-                                                                             karmed_bandit_agent2,
-                                                                             noc_attraction_weight,
-                                                                             placer_opts.place_high_fanout_net);
+            //agent's 2nd state (only create if NOT in multi-state mode)
+            if (!placer_opts.place_rl_multistate_mode) {
+                karmed_bandit_agent2 = std::make_unique<SoftmaxAgent>(second_state_avail_moves,
+                                                                      e_agent_space::MOVE_TYPE,
+                                                                      rng,
+                                                                      num_movable_blocks_per_type);
+                karmed_bandit_agent2->set_step(placer_opts.place_agent_gamma, move_lim);
+                karmed_bandit_agent2->set_multistate_mode(placer_opts.place_rl_multistate_mode);
+                move_generators.second = std::make_unique<SimpleRLMoveGenerator>(placer_state,
+                                                                                 place_macros,
+                                                                                 net_cost_handler,
+                                                                                 reward_fun,
+                                                                                 rng,
+                                                                                 karmed_bandit_agent2,
+                                                                                 noc_attraction_weight,
+                                                                                 placer_opts.place_high_fanout_net);
+            }
         }
     }
 
@@ -163,6 +171,12 @@ MoveGenerator& select_move_generator(std::unique_ptr<MoveGenerator>& move_genera
                                      e_agent_state agent_state,
                                      const t_placer_opts& placer_opts,
                                      bool in_quench) {
+    // In multi-state mode, always use the first (and only) move generator
+    if (placer_opts.place_rl_multistate_mode) {
+        return *move_generator;
+    }
+
+    // Legacy two-state mode logic
     if (in_quench) {
         if (placer_opts.place_quench_algorithm.is_timing_driven() && placer_opts.place_agent_multistate)
             return *move_generator2;

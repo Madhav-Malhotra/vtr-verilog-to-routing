@@ -484,6 +484,29 @@ float PlacementAnnealer::estimate_starting_temp_using_cost_variance_() {
     return init_temp;
 }
 
+float PlacementAnnealer::compute_average_criticality_() const {
+    const auto& cluster_ctx = g_vpr_ctx.clustering();
+    const auto& clb_nlist = cluster_ctx.clb_nlist;
+
+    double total_criticality = 0.0;
+    size_t num_connections = 0;
+
+    for (ClusterNetId net_id : clb_nlist.nets()) {
+        // Skip nets with no driver or nets that are ignored
+        if (!clb_nlist.net_driver(net_id)) continue;
+        if (clb_nlist.net_is_ignored(net_id)) continue;
+
+        // Sum criticalities for all sink pins on this net
+        for (size_t ipin = 1; ipin < clb_nlist.net_pins(net_id).size(); ++ipin) {
+            total_criticality += criticalities_->criticality(net_id, ipin);
+            num_connections++;
+        }
+    }
+
+    // Return average criticality (already normalized 0-1 by PlacerCriticalities)
+    return (num_connections > 0) ? static_cast<float>(total_criticality / num_connections) : 0.0f;
+}
+
 t_swap_result PlacementAnnealer::try_swap_(MoveGenerator& move_generator,
                                            const t_place_algorithm& place_algorithm,
                                            bool manual_move_enabled) {
@@ -823,6 +846,9 @@ void PlacementAnnealer::placement_inner_loop() {
 
     placer_stats_.reset();
 
+    // Update RL agent state features if multi-state mode enabled
+    update_move_generator_state_features();
+
     bool manual_move_enabled = false;
 
     MoveGenerator& move_generator = select_move_generator(move_generator_1_, move_generator_2_, agent_state_,
@@ -844,10 +870,45 @@ void PlacementAnnealer::placement_inner_loop() {
             // Move was accepted.  Update statistics that are useful for the annealing schedule.
             placer_stats_.single_swap_update(costs_);
             swap_stats_.num_swap_accepted++;
+
+            // Track for multi-state RL (Phase 1)
+            if (placer_opts_.place_rl_multistate_mode) {
+                recent_move_outcomes_.push_back(true);
+                recent_accepted_count_++;
+                if (recent_move_outcomes_.size() > max_recent_outcomes_ ) {
+                    bool removed = recent_move_outcomes_.front();
+                    recent_move_outcomes_.pop_front();
+                    if (removed) recent_accepted_count_--;
+                }
+
+                // Check for significant improvement (>1% cost reduction)
+                if (last_significant_cost_ > 0.0 && costs_.cost < last_significant_cost_ * 0.99) {
+                    moves_since_last_improvement_ = 0;
+                    last_significant_cost_ = costs_.cost;
+                } else {
+                    moves_since_last_improvement_++;
+                }
+
+                // Initialize reference cost if not set
+                if (last_significant_cost_ == 0.0) {
+                    last_significant_cost_ = costs_.cost;
+                }
+            }
         } else if (swap_result.move_result == e_move_result::ABORTED) {
             swap_stats_.num_swap_aborted++;
         } else { // swap_result == REJECTED
             swap_stats_.num_swap_rejected++;
+
+            // Track for multi-state RL (Phase 1)
+            if (placer_opts_.place_rl_multistate_mode) {
+                recent_move_outcomes_.push_back(false);
+                if (recent_move_outcomes_.size() > max_recent_outcomes_) {
+                    bool removed = recent_move_outcomes_.front();
+                    recent_move_outcomes_.pop_front();
+                    if (removed) recent_accepted_count_--;
+                }
+                moves_since_last_improvement_++;
+            }
         }
 
         if (placer_opts_.place_algorithm.is_timing_driven()) {
@@ -906,8 +967,8 @@ void PlacementAnnealer::placement_inner_loop() {
     // Calculate the success_rate and std_dev of the costs.
     placer_stats_.calc_iteration_stats(costs_, annealing_state_.move_lim);
 
-    // update the RL agent's state
-    if (!quench_started_) {
+    // update the RL agent's state (only for legacy two-state mode)
+    if (!quench_started_ && !placer_opts_.place_rl_multistate_mode) {
         if (placer_opts_.place_algorithm.is_timing_driven() && placer_opts_.place_agent_multistate && agent_state_ == e_agent_state::EARLY_IN_THE_ANNEAL) {
             if (annealing_state_.alpha < 0.85 && annealing_state_.alpha > 0.6) {
                 agent_state_ = e_agent_state::LATE_IN_THE_ANNEAL;
@@ -934,6 +995,64 @@ const t_annealing_state& PlacementAnnealer::get_annealing_state() const {
 
 bool PlacementAnnealer::outer_loop_update_state() {
     return annealing_state_.outer_loop_update(placer_stats_.success_rate, costs_, placer_opts_);
+}
+
+RLStateFeatures PlacementAnnealer::compute_rl_state_features() {
+    RLStateFeatures features;
+
+    // 1. Annealing temperature progress (0-1, normalized)
+    features.annealing_temperature_progress = annealing_state_.alpha;
+
+    // 2. Worst path slack ratio (normalized)
+    if (timing_info_ && placer_opts_.place_algorithm.is_timing_driven()) {
+        float worst_slack = timing_info_->setup_worst_negative_slack();
+        features.worst_path_slack_ratio = RLStateFeatures::normalize_slack_ratio(worst_slack / 1e-9f);
+    } else {
+        features.worst_path_slack_ratio = 0.0f;
+    }
+
+    // 3. Recent acceptance rate (0-1)
+    if (!recent_move_outcomes_.empty()) {
+        features.recent_acceptance_rate = static_cast<float>(recent_accepted_count_) / static_cast<float>(recent_move_outcomes_.size());
+    } else {
+        features.recent_acceptance_rate = 0.5f; // Default to neutral
+    }
+
+    // 4. Critical block density (0-1) - use simplified average criticality
+    if (criticalities_ && placer_opts_.place_algorithm.is_timing_driven()) {
+        // Use average criticality across all connections as a proxy for critical block density
+        features.critical_block_density = compute_average_criticality_();
+    } else {
+        features.critical_block_density = 0.0f;
+    }
+
+    // 5. Timing vs wirelength imbalance (-1 to 1)
+    double total_cost = costs_.bb_cost + costs_.timing_cost;
+    if (total_cost > 0.0) {
+        features.timing_vs_wirelength_imbalance =
+            static_cast<float>((costs_.timing_cost - costs_.bb_cost) / total_cost);
+    } else {
+        features.timing_vs_wirelength_imbalance = 0.0f;
+    }
+
+    // 6. Moves since improvement (normalized)
+    features.moves_since_improvement =
+        RLStateFeatures::normalize_moves_count(moves_since_last_improvement_, 1000);
+
+    return features;
+}
+
+void PlacementAnnealer::update_move_generator_state_features() {
+    if (!placer_opts_.place_rl_multistate_mode) {
+        return; // Skip if multi-state mode disabled
+    }
+
+    RLStateFeatures features = compute_rl_state_features();
+
+    // In multi-state mode, only update the first (and only) move generator
+    if (move_generator_1_) {
+        move_generator_1_->update_agent_state(features);
+    }
 }
 
 void PlacementAnnealer::start_quench() {

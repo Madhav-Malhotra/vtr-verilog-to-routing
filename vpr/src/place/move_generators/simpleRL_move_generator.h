@@ -8,6 +8,7 @@
 #include "uniform_move_generator.h"
 #include "critical_uniform_move_generator.h"
 #include "centroid_move_generator.h"
+#include "rl_state_features.h"
 
 class PlaceMacros;
 
@@ -54,6 +55,13 @@ class KArmedBanditAgent {
      *   @param move_lim Number of moves per temperature
      */
     void set_step(float gamma, int move_lim);
+
+    /**
+     * @brief Update the current state features for multi-state RL mode
+     *
+     *   @param features The new state features computed by the annealer
+     */
+    void update_state_features(const RLStateFeatures& features);
 
   protected:
     /**
@@ -104,6 +112,15 @@ class KArmedBanditAgent {
     vtr::RngContainer& rng_;
 
     FILE* agent_info_file_ = nullptr;
+
+    // Multi-state RL mode (Phase 1)
+    RLStateFeatures current_state_;            //Current state features (only used if multistate mode enabled)
+
+  private:
+    bool multistate_mode_ = false;             //Enable multi-feature state vector system
+
+  public:
+    void set_multistate_mode(bool enabled) { multistate_mode_ = enabled; }
 
   private:
     /**
@@ -252,6 +269,9 @@ class SimpleRLMoveGenerator : public MoveGenerator {
 
     // Receives feedback about the outcome of the previously proposed move
     void process_outcome(double reward, e_reward_function reward_fun) override;
+
+    // Update agent state features for multi-state RL mode
+    void update_agent_state(const RLStateFeatures& features) override;
 };
 
 template<class T, class>

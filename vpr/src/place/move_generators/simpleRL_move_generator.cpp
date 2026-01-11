@@ -31,6 +31,10 @@ void SimpleRLMoveGenerator::process_outcome(double reward, e_reward_function rew
     karmed_bandit_agent->process_outcome(reward, reward_fun);
 }
 
+void SimpleRLMoveGenerator::update_agent_state(const RLStateFeatures& features) {
+    karmed_bandit_agent->update_state_features(features);
+}
+
 /*                                        *
  *                                        *
  *  K-Armed bandit agent implementation   *
@@ -183,6 +187,12 @@ void KArmedBanditAgent::set_step(float gamma, int move_lim) {
         //
         float alpha = 1 - std::exp(std::log(gamma) / move_lim);
         exp_alpha_ = alpha;
+    }
+}
+
+void KArmedBanditAgent::update_state_features(const RLStateFeatures& features) {
+    if (multistate_mode_) {
+        current_state_ = features;
     }
 }
 
