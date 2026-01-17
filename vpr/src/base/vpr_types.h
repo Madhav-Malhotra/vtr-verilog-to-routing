@@ -1080,7 +1080,12 @@ struct t_placer_opts {
     vtr::vector<e_move_type, float> place_static_move_prob;
     bool RL_agent_placement;
     bool place_agent_multistate;
-    bool place_rl_multistate_mode; ///<Enable multi-feature state vector RL (Phase 1)
+    bool place_rl_multistate_mode;       ///< Enable multi-feature state vector RL
+    bool rl_training_mode;               ///< Enable RL training mode
+    std::string rl_checkpoint_file;      ///< Path to checkpoint file for save/load
+    int rl_checkpoint_interval;          ///< Interval for saving checkpoints in training mode
+    bool rl_static_q_mode;               ///< If true, Q-values are not updated during inference (static mode)
+    int rl_state_reload_interval;        ///< How often to reload Q-values from nearest checkpoint (0=once at start)
     bool place_checkpointing;
     int place_high_fanout_net;
     e_place_bounding_box_mode place_bounding_box_mode;

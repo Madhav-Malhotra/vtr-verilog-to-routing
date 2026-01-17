@@ -9,6 +9,9 @@
 #include "critical_uniform_move_generator.h"
 #include "centroid_move_generator.h"
 #include "rl_state_features.h"
+#include "rl_checkpoint.h"
+
+#include <memory>
 
 class PlaceMacros;
 
@@ -113,7 +116,7 @@ class KArmedBanditAgent {
 
     FILE* agent_info_file_ = nullptr;
 
-    // Multi-state RL mode (Phase 1)
+    // Multi-state RL mode
     RLStateFeatures current_state_;            //Current state features (only used if multistate mode enabled)
 
   private:
@@ -121,6 +124,44 @@ class KArmedBanditAgent {
 
   public:
     void set_multistate_mode(bool enabled) { multistate_mode_ = enabled; }
+
+    // Checkpoint support
+    /**
+     * @brief Set up checkpoint manager for training or inference mode
+     *
+     * In training mode, initializes streaming checkpoint writer that buffers
+     * checkpoints in memory and flushes to disk when buffer is full.
+     * In inference mode, loads checkpoints from file for Q-value initialization.
+     *
+     * @param training_mode If true, collect checkpoints; if false, load for inference
+     * @param checkpoint_file Path to checkpoint file
+     * @param static_q_mode If true (inference only), Q-values are never updated after loading
+     * @param state_reload_interval How often to reload Q-values from nearest checkpoint (0=once at start)
+     */
+    void setup_checkpointing(bool training_mode, const std::string& checkpoint_file,
+                             bool static_q_mode, int state_reload_interval);
+
+    /**
+     * @brief Save current Q-values as a checkpoint (training mode only)
+     *
+     * Adds checkpoint to internal buffer. When buffer exceeds threshold,
+     * automatically flushes to disk. Destructor handles final flush.
+     */
+    void save_current_checkpoint();
+
+    /// Get total number of action selections for checkpoint metadata
+    size_t get_total_action_count() const;
+
+    /// Check if Q-value updates should be skipped (static mode in inference)
+    bool should_skip_q_updates() const { return !training_mode_ && static_q_mode_; }
+
+  protected:
+    std::unique_ptr<RLCheckpointManager> checkpoint_manager_;  /// Manages checkpoint save/load
+    bool training_mode_ = false;                               /// True if collecting checkpoints
+    bool static_q_mode_ = true;                                /// In inference: true=no Q updates, false=adaptive
+    int state_reload_interval_ = 0;                            /// How often to reload Q-values (0=once at start)
+    int state_update_count_ = 0;                               /// Counter for reload interval
+    bool initialized_from_checkpoint_ = false;                 /// Prevents re-init when interval=0
 
   private:
     /**
@@ -272,6 +313,9 @@ class SimpleRLMoveGenerator : public MoveGenerator {
 
     // Update agent state features for multi-state RL mode
     void update_agent_state(const RLStateFeatures& features) override;
+
+    // Checkpoint support - streaming implementation
+    void save_checkpoint() override;
 };
 
 template<class T, class>

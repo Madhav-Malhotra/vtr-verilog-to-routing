@@ -218,12 +218,12 @@ class PlacementAnnealer {
     bool outer_loop_update_state();
 
     /**
-     * @brief Compute RL state features for multi-state mode (Phase 1)
+     * @brief Compute RL state features for multi-state mode
      * @return RLStateFeatures struct with computed features
      */
     RLStateFeatures compute_rl_state_features();
 
-    /// Update agent state features in both move generators (Phase 1)
+    /// Update agent state features in both move generators
     void update_move_generator_state_features();
 
     /**
@@ -340,12 +340,15 @@ class PlacementAnnealer {
     /// Keep record of moved blocks and affected pins in a swap
     t_pl_blocks_to_be_moved blocks_affected_;
 
-    /// Multi-state RL tracking (Phase 1)
+    /// Multi-state RL tracking
     std::deque<bool> recent_move_outcomes_;   /// Track recent accepts/rejects for acceptance rate
     int max_recent_outcomes_ = 100;           /// Number of recent outcomes to track
     int recent_accepted_count_ = 0;           /// Incremental count of accepted moves in recent_move_outcomes_
     int moves_since_last_improvement_ = 0;    /// Counter for stagnation detection
     double last_significant_cost_ = 0.0;      /// init to 0, update on first move
+
+    /// Checkpoint tracking
+    int outer_loop_iteration_ = 0;            /// Counter for checkpoint interval
 
   private:
     /**

@@ -2466,9 +2466,48 @@ argparse::ArgumentParser create_arg_parser(const std::string& prog_name, t_optio
 
     place_grp.add_argument<bool, ParseOnOff>(args.place_rl_multistate_mode, "--place_rl_multistate_mode")
         .help(
-            "Enable multi-feature state vector RL system (Phase 1). "
+            "Enable multi-feature state vector RL system. "
             "When enabled, uses continuous state features instead of binary early/late states.")
         .default_value("off")
+        .show_in(argparse::ShowIn::HELP_ONLY);
+
+    place_grp.add_argument<bool, ParseOnOff>(args.place_rl_training_mode, "--place_rl_training_mode")
+        .help(
+            "Enable RL training mode. "
+            "When enabled, collects and saves Q-value checkpoints during placement. "
+            "When disabled, loads checkpoints for inference. Requires --place_rl_multistate_mode.")
+        .default_value("off")
+        .show_in(argparse::ShowIn::HELP_ONLY);
+
+    place_grp.add_argument(args.place_rl_checkpoint_file, "--place_rl_checkpoint_file")
+        .help(
+            "Path to checkpoint file for saving (training mode) or loading (inference mode). "
+            "Only used when --place_rl_multistate_mode is enabled.")
+        .default_value("")
+        .show_in(argparse::ShowIn::HELP_ONLY);
+
+    place_grp.add_argument(args.place_rl_checkpoint_interval, "--place_rl_checkpoint_interval")
+        .help(
+            "How often (in outer loop iterations) to save checkpoints during training mode. "
+            "Only used when --place_rl_training_mode is enabled.")
+        .default_value("100")
+        .show_in(argparse::ShowIn::HELP_ONLY);
+
+    place_grp.add_argument<bool, ParseOnOff>(args.place_rl_static_q_mode, "--place_rl_static_q_mode")
+        .help(
+            "When enabled in inference mode, Q-values are not updated after loading from checkpoint. "
+            "This tests whether checkpointed Q-values generalize without online learning. "
+            "When disabled, Q-values are updated as placement progresses (adaptive mode).")
+        .default_value("on")
+        .show_in(argparse::ShowIn::HELP_ONLY);
+
+    place_grp.add_argument(args.place_rl_state_reload_interval, "--place_rl_state_reload_interval")
+        .help(
+            "How often (in state updates) to reload Q-values from the nearest checkpoint. "
+            "0 = reload only once at the start. "
+            ">0 = reload every N state updates from the nearest checkpoint. "
+            "Only used in inference mode with --place_rl_multistate_mode enabled.")
+        .default_value("0")
         .show_in(argparse::ShowIn::HELP_ONLY);
 
     place_grp.add_argument(args.place_agent_epsilon, "--place_agent_epsilon")

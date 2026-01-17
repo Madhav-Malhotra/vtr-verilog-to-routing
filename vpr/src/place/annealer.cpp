@@ -994,6 +994,15 @@ const t_annealing_state& PlacementAnnealer::get_annealing_state() const {
 }
 
 bool PlacementAnnealer::outer_loop_update_state() {
+    // Collect checkpoint in training mode at specified intervals
+    if (placer_opts_.place_rl_multistate_mode && placer_opts_.rl_training_mode) {
+        outer_loop_iteration_++;
+        if (placer_opts_.rl_checkpoint_interval > 0 && move_generator_1_ &&
+            (outer_loop_iteration_ % placer_opts_.rl_checkpoint_interval) == 0) {
+            move_generator_1_->save_checkpoint();
+        }
+    }
+
     return annealing_state_.outer_loop_update(placer_stats_.success_rate, costs_, placer_opts_);
 }
 

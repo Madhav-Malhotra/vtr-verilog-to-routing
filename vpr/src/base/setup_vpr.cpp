@@ -712,6 +712,11 @@ static void setup_placer_opts(const t_options& Options, t_placer_opts* PlacerOpt
     PlacerOpts->RL_agent_placement = Options.RL_agent_placement;
     PlacerOpts->place_agent_multistate = Options.place_agent_multistate;
     PlacerOpts->place_rl_multistate_mode = Options.place_rl_multistate_mode;
+    PlacerOpts->rl_training_mode = Options.place_rl_training_mode;
+    PlacerOpts->rl_checkpoint_file = Options.place_rl_checkpoint_file;
+    PlacerOpts->rl_checkpoint_interval = Options.place_rl_checkpoint_interval;
+    PlacerOpts->rl_static_q_mode = Options.place_rl_static_q_mode;
+    PlacerOpts->rl_state_reload_interval = Options.place_rl_state_reload_interval;
     PlacerOpts->place_checkpointing = Options.place_checkpointing;
     PlacerOpts->place_agent_epsilon = Options.place_agent_epsilon;
     PlacerOpts->place_agent_gamma = Options.place_agent_gamma;

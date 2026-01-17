@@ -91,6 +91,13 @@ std::pair<std::unique_ptr<MoveGenerator>, std::unique_ptr<MoveGenerator>> create
             }
             karmed_bandit_agent1->set_step(placer_opts.place_agent_gamma, move_lim);
             karmed_bandit_agent1->set_multistate_mode(placer_opts.place_rl_multistate_mode);
+            // Setup checkpointing (EpsilonGreedy)
+            if (placer_opts.place_rl_multistate_mode) {
+                karmed_bandit_agent1->setup_checkpointing(placer_opts.rl_training_mode,
+                                                          placer_opts.rl_checkpoint_file,
+                                                          placer_opts.rl_static_q_mode,
+                                                          placer_opts.rl_state_reload_interval);
+            }
             move_generators.first = std::make_unique<SimpleRLMoveGenerator>(placer_state,
                                                                             place_macros,
                                                                             net_cost_handler,
@@ -135,6 +142,13 @@ std::pair<std::unique_ptr<MoveGenerator>, std::unique_ptr<MoveGenerator>> create
             }
             karmed_bandit_agent1->set_step(placer_opts.place_agent_gamma, move_lim);
             karmed_bandit_agent1->set_multistate_mode(placer_opts.place_rl_multistate_mode);
+            // Setup checkpointing (Softmax)
+            if (placer_opts.place_rl_multistate_mode) {
+                karmed_bandit_agent1->setup_checkpointing(placer_opts.rl_training_mode,
+                                                          placer_opts.rl_checkpoint_file,
+                                                          placer_opts.rl_static_q_mode,
+                                                          placer_opts.rl_state_reload_interval);
+            }
             move_generators.first = std::make_unique<SimpleRLMoveGenerator>(placer_state,
                                                                             place_macros,
                                                                             net_cost_handler,

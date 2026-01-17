@@ -150,6 +150,15 @@ class MoveGenerator {
     virtual void update_agent_state(const struct RLStateFeatures& /*features*/) {}
 
     /**
+     * @brief Save current checkpoint (training mode, only used by SimpleRLMoveGenerator)
+     *
+     * Uses streaming implementation: checkpoints are buffered in memory and
+     * automatically flushed to disk when buffer exceeds threshold.
+     * Final flush occurs when the checkpoint manager is destroyed.
+     */
+    virtual void save_checkpoint() {}
+
+    /**
      * @brief Calculates the agent's reward and the total process outcome
      *
      * @param move_outcome_stats Contains information about how much each cost term

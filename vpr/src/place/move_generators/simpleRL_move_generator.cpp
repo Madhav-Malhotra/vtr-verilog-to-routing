@@ -35,6 +35,10 @@ void SimpleRLMoveGenerator::update_agent_state(const RLStateFeatures& features) 
     karmed_bandit_agent->update_state_features(features);
 }
 
+void SimpleRLMoveGenerator::save_checkpoint() {
+    karmed_bandit_agent->save_current_checkpoint();
+}
+
 /*                                        *
  *                                        *
  *  K-Armed bandit agent implementation   *
@@ -123,6 +127,17 @@ std::vector<int> KArmedBanditAgent::get_available_logical_blk_types_(const std::
 
 void KArmedBanditAgent::process_outcome(double reward, e_reward_function reward_fun) {
     ++num_action_chosen_[last_action_];
+
+    // In static Q-value mode during inference, skip all Q-value updates
+    // This tests whether checkpointed Q-values generalize without online learning
+    if (should_skip_q_updates()) {
+        // Still write to debug file if enabled, but don't update Q-values
+        if (agent_info_file_) {
+            write_agent_info(last_action_, reward);
+        }
+        return;
+    }
+
     if (reward_fun == e_reward_function::RUNTIME_AWARE || reward_fun == e_reward_function::WL_BIASED_RUNTIME_AWARE) {
         e_move_type move_type = action_to_move_type_(last_action_);
         reward /= time_elapsed_[move_type];
@@ -193,7 +208,90 @@ void KArmedBanditAgent::set_step(float gamma, int move_lim) {
 void KArmedBanditAgent::update_state_features(const RLStateFeatures& features) {
     if (multistate_mode_) {
         current_state_ = features;
+
+        // Inference mode: reload Q-values from checkpoint based on interval setting
+        if (!training_mode_ && checkpoint_manager_) {
+            state_update_count_++;
+
+            // Determine if we should reload Q-values
+            bool should_reload = false;
+            if (state_reload_interval_ == 0) {
+                // Interval=0: Only load once at start
+                should_reload = !initialized_from_checkpoint_;
+            } else {
+                // Interval>0: Reload every N updates
+                should_reload = (state_update_count_ % state_reload_interval_) == 1;
+            }
+
+            if (should_reload) {
+                const RLCheckpoint* nearest = checkpoint_manager_->find_nearest_checkpoint(features);
+                if (nearest && nearest->q_values.size() == q_.size()) {
+                    q_ = nearest->q_values;
+                    initialized_from_checkpoint_ = true;
+
+                    if (state_reload_interval_ == 0) {
+                        VTR_LOG("Initialized Q-values from checkpoint at time %.3f\n",
+                                nearest->timestamp);
+                    } else {
+                        VTR_LOG("Reloaded Q-values from checkpoint at update %d (time: %.3f)\n",
+                                state_update_count_, nearest->timestamp);
+                    }
+                }
+            }
+        }
     }
+}
+
+void KArmedBanditAgent::setup_checkpointing(bool training_mode, const std::string& checkpoint_file,
+                                             bool static_q_mode, int state_reload_interval) {
+    training_mode_ = training_mode;
+    static_q_mode_ = static_q_mode;
+    state_reload_interval_ = state_reload_interval;
+    state_update_count_ = 0;
+    initialized_from_checkpoint_ = false;
+
+    if (checkpoint_file.empty()) {
+        return;  // No checkpointing requested
+    }
+
+    checkpoint_manager_ = std::make_unique<RLCheckpointManager>();
+
+    if (training_mode) {
+        // Training mode: initialize streaming checkpoint writer
+        if (!checkpoint_manager_->init_for_training(checkpoint_file)) {
+            VTR_LOG_WARN("Could not open checkpoint file %s for writing, checkpointing disabled\n",
+                         checkpoint_file.c_str());
+            checkpoint_manager_.reset();
+        }
+    } else {
+        // Inference mode: load existing checkpoints
+        if (!checkpoint_manager_->load(checkpoint_file)) {
+            VTR_LOG_WARN("Could not load RL checkpoints from %s, using default initialization\n",
+                         checkpoint_file.c_str());
+            checkpoint_manager_.reset();
+        } else {
+            // Log the inference configuration
+            if (static_q_mode) {
+                VTR_LOG("RL inference mode: STATIC Q-values (no online updates)\n");
+            } else {
+                VTR_LOG("RL inference mode: ADAPTIVE Q-values (online updates enabled)\n");
+            }
+            if (state_reload_interval > 0) {
+                VTR_LOG("RL state reload interval: every %d state updates\n", state_reload_interval);
+            } else {
+                VTR_LOG("RL state reload: once at start\n");
+            }
+        }
+    }
+}
+
+void KArmedBanditAgent::save_current_checkpoint() {
+    if (!training_mode_ || !checkpoint_manager_) {
+        return;
+    }
+
+    // Streaming implementation: checkpoint_manager handles buffering and flushing
+    checkpoint_manager_->save_checkpoint(current_state_, q_);
 }
 
 int KArmedBanditAgent::agent_to_phy_blk_type(const int idx) {
