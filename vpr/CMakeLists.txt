@@ -286,6 +286,15 @@ endif()
 install(TARGETS vpr libvpr DESTINATION bin)
 install(FILES ${LIB_HEADERS} DESTINATION include/libvpr)
 
+#
+# RL Checkpoint Clustering Tool
+#
+# Tool for clustering RL checkpoints to reduce redundancy.
+# Links against libvpr to reuse RLCheckpoint and RLStateFeatures types.
+#
+add_executable(rl_checkpoint_cluster src/util/rl_checkpoint_cluster.cpp)
+target_link_libraries(rl_checkpoint_cluster libvpr)
+install(TARGETS rl_checkpoint_cluster DESTINATION bin)
 
 #
 # Unit Tests

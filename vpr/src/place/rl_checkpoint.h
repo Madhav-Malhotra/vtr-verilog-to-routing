@@ -19,6 +19,35 @@ struct RLCheckpoint {
     double timestamp;              ///< When checkpoint was created (for debugging)
 };
 
+/// @brief Shared utilities for RL checkpoint operations
+namespace rl_checkpoint {
+
+/// Feature weights for state distance calculation (higher = more important)
+constexpr float WEIGHT_TEMP_PROGRESS = 1.0f;
+constexpr float WEIGHT_SLACK_RATIO = 1.0f;
+constexpr float WEIGHT_ACCEPTANCE_RATE = 1.0f;
+constexpr float WEIGHT_CRIT_DENSITY = 1.0f;
+constexpr float WEIGHT_COST_IMBALANCE = 1.0f;
+constexpr float WEIGHT_MOVES_STALE = 1.0f;
+
+/**
+ * @brief Compute weighted Euclidean distance between two states
+ * @param s1 First state
+ * @param s2 Second state
+ * @return Weighted distance (lower = more similar)
+ */
+float compute_state_distance(const RLStateFeatures& s1, const RLStateFeatures& s2);
+
+/**
+ * @brief Parse a JSON line into a checkpoint
+ * @param line JSON line in compact format
+ * @param cp Output checkpoint
+ * @return true if parse succeeded
+ */
+bool parse_checkpoint_line(const std::string& line, RLCheckpoint& cp);
+
+}  // namespace rl_checkpoint
+
 /**
  * @brief Manages saving and loading of RL checkpoints for Q-value initialization
  *
@@ -106,14 +135,6 @@ class RLCheckpointManager {
     bool write_checkpoint_line(const RLCheckpoint& cp);
 
     /**
-     * @brief Parse a single JSON line into a checkpoint
-     * @param line JSON line to parse
-     * @param cp Output checkpoint
-     * @return true if parse succeeded
-     */
-    static bool parse_checkpoint_line(const std::string& line, RLCheckpoint& cp);
-
-    /**
      * @brief Load from legacy JSON format (array of checkpoints)
      * @param filename Path to file
      * @return true if successful
@@ -127,16 +148,6 @@ class RLCheckpointManager {
      */
     bool load_jsonl_format(const std::string& filename);
 
-    /**
-     * @brief Compute weighted Euclidean distance between two states
-     *
-     * Uses feature weights to prioritize more important features.
-     * annealing_temperature_progress is weighted most heavily as it's
-     * the primary indicator of placement stage.
-     */
-    static float compute_state_distance(const RLStateFeatures& s1,
-                                        const RLStateFeatures& s2);
-
   private:
     std::vector<RLCheckpoint> buffer_;           ///< In-memory checkpoint buffer
     std::vector<RLCheckpoint> checkpoints_;      ///< Loaded checkpoints (inference mode)
@@ -145,14 +156,6 @@ class RLCheckpointManager {
     size_t buffer_threshold_;                    ///< Flush when buffer exceeds this size
     size_t total_checkpoints_written_ = 0;       ///< Count of checkpoints flushed to disk
     bool training_mode_ = false;                 ///< True if initialized for training
-
-    // Feature weights for distance calculation (higher = more important)
-    static constexpr float WEIGHT_TEMP_PROGRESS = 2.0f;
-    static constexpr float WEIGHT_SLACK_RATIO = 0.5f;
-    static constexpr float WEIGHT_ACCEPTANCE_RATE = 1.0f;
-    static constexpr float WEIGHT_CRIT_DENSITY = 0.8f;
-    static constexpr float WEIGHT_COST_IMBALANCE = 0.8f;
-    static constexpr float WEIGHT_MOVES_STALE = 1.0f;
 };
 
 #endif /* VPR_RL_CHECKPOINT_H */

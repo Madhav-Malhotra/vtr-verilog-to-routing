@@ -6,6 +6,92 @@
 #include <algorithm>
 #include <sstream>
 
+// ============================================================================
+// Namespace functions (shared with rl_checkpoint_cluster)
+// ============================================================================
+
+float rl_checkpoint::compute_state_distance(const RLStateFeatures& s1,
+                                            const RLStateFeatures& s2) {
+    float diff_temp = s1.annealing_temperature_progress - s2.annealing_temperature_progress;
+    float diff_slack = s1.worst_path_slack_ratio - s2.worst_path_slack_ratio;
+    float diff_accept = s1.recent_acceptance_rate - s2.recent_acceptance_rate;
+    float diff_crit = s1.critical_block_density - s2.critical_block_density;
+    float diff_imbal = s1.timing_vs_wirelength_imbalance - s2.timing_vs_wirelength_imbalance;
+    float diff_stale = s1.moves_since_improvement - s2.moves_since_improvement;
+
+    // Normalize slack_ratio to similar scale as other features
+    // slack_ratio is in [-10, 10], so divide by 10 to get [-1, 1]
+    diff_slack /= 10.0f;
+
+    float weighted_sum = WEIGHT_TEMP_PROGRESS * diff_temp * diff_temp +
+                         WEIGHT_SLACK_RATIO * diff_slack * diff_slack +
+                         WEIGHT_ACCEPTANCE_RATE * diff_accept * diff_accept +
+                         WEIGHT_CRIT_DENSITY * diff_crit * diff_crit +
+                         WEIGHT_COST_IMBALANCE * diff_imbal * diff_imbal +
+                         WEIGHT_MOVES_STALE * diff_stale * diff_stale;
+
+    return std::sqrt(weighted_sum);
+}
+
+bool rl_checkpoint::parse_checkpoint_line(const std::string& line, RLCheckpoint& cp) {
+    // Parse compact JSON format: {"state":{...},"q":[...],"t":...}
+    auto find_value = [&line](const std::string& key) -> std::string {
+        size_t pos = line.find("\"" + key + "\":");
+        if (pos == std::string::npos) return "";
+        pos = line.find(':', pos) + 1;
+        size_t end = line.find_first_of(",}]", pos);
+        return line.substr(pos, end - pos);
+    };
+
+    auto find_float = [&find_value](const std::string& key) -> float {
+        std::string val = find_value(key);
+        if (val.empty()) return 0.0f;
+        try {
+            return std::stof(val);
+        } catch (...) {
+            return 0.0f;
+        }
+    };
+
+    // Parse state (using abbreviated keys)
+    cp.state.annealing_temperature_progress = find_float("atp");
+    cp.state.worst_path_slack_ratio = find_float("wps");
+    cp.state.recent_acceptance_rate = find_float("rar");
+    cp.state.critical_block_density = find_float("cbd");
+    cp.state.timing_vs_wirelength_imbalance = find_float("twi");
+    cp.state.moves_since_improvement = find_float("msi");
+
+    // Parse q_values array
+    size_t q_start = line.find("\"q\":[");
+    if (q_start == std::string::npos) return false;
+    q_start = line.find('[', q_start) + 1;
+    size_t q_end = line.find(']', q_start);
+    if (q_end == std::string::npos) return false;
+
+    cp.q_values.clear();
+    std::string q_str = line.substr(q_start, q_end - q_start);
+    std::stringstream ss(q_str);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        try {
+            cp.q_values.push_back(std::stof(token));
+        } catch (...) {
+            // Skip malformed values
+        }
+    }
+
+    if (cp.q_values.empty()) return false;
+
+    // Parse metadata
+    cp.timestamp = static_cast<double>(find_float("t"));
+
+    return true;
+}
+
+// ============================================================================
+// RLCheckpointManager implementation
+// ============================================================================
+
 RLCheckpointManager::RLCheckpointManager(size_t buffer_size)
     : buffer_threshold_(buffer_size) {
     buffer_.reserve(buffer_size);
@@ -157,7 +243,7 @@ bool RLCheckpointManager::load_jsonl_format(const std::string& filename) {
         }
 
         RLCheckpoint cp;
-        if (parse_checkpoint_line(line, cp)) {
+        if (rl_checkpoint::parse_checkpoint_line(line, cp)) {
             checkpoints_.push_back(std::move(cp));
         } else {
             // If first line fails to parse as JSON Lines, this might be legacy format
@@ -178,59 +264,6 @@ bool RLCheckpointManager::load_jsonl_format(const std::string& filename) {
     return false;
 }
 
-bool RLCheckpointManager::parse_checkpoint_line(const std::string& line, RLCheckpoint& cp) {
-    // Parse compact JSON format: {"state":{...},"q":[...],"n":...,"t":...}
-    auto find_value = [&line](const std::string& key) -> std::string {
-        size_t pos = line.find("\"" + key + "\":");
-        if (pos == std::string::npos) return "";
-        pos = line.find(':', pos) + 1;
-        size_t end = line.find_first_of(",}]", pos);
-        return line.substr(pos, end - pos);
-    };
-
-    auto find_float = [&find_value](const std::string& key) -> float {
-        std::string val = find_value(key);
-        if (val.empty()) return 0.0f;
-        try {
-            return std::stof(val);
-        } catch (...) {
-            return 0.0f;
-        }
-    };
-
-    // Parse state (using abbreviated keys)
-    cp.state.annealing_temperature_progress = find_float("atp");
-    cp.state.worst_path_slack_ratio = find_float("wps");
-    cp.state.recent_acceptance_rate = find_float("rar");
-    cp.state.critical_block_density = find_float("cbd");
-    cp.state.timing_vs_wirelength_imbalance = find_float("twi");
-    cp.state.moves_since_improvement = find_float("msi");
-
-    // Parse q_values array
-    size_t q_start = line.find("\"q\":[");
-    if (q_start == std::string::npos) return false;
-    q_start = line.find('[', q_start) + 1;
-    size_t q_end = line.find(']', q_start);
-    if (q_end == std::string::npos) return false;
-
-    std::string q_str = line.substr(q_start, q_end - q_start);
-    std::stringstream ss(q_str);
-    std::string token;
-    while (std::getline(ss, token, ',')) {
-        try {
-            cp.q_values.push_back(std::stof(token));
-        } catch (...) {
-            // Skip malformed values
-        }
-    }
-
-    if (cp.q_values.empty()) return false;
-
-    // Parse metadata
-    cp.timestamp = static_cast<double>(find_float("t"));
-
-    return true;
-}
 
 bool RLCheckpointManager::load_legacy_format(const std::string& filename) {
     std::ifstream file(filename);
@@ -323,7 +356,7 @@ const RLCheckpoint* RLCheckpointManager::find_nearest_checkpoint(const RLStateFe
     float min_distance = std::numeric_limits<float>::max();
 
     for (const auto& checkpoint : checkpoints_) {
-        float distance = compute_state_distance(state, checkpoint.state);
+        float distance = rl_checkpoint::compute_state_distance(state, checkpoint.state);
         if (distance < min_distance) {
             min_distance = distance;
             nearest = &checkpoint;
@@ -331,28 +364,4 @@ const RLCheckpoint* RLCheckpointManager::find_nearest_checkpoint(const RLStateFe
     }
 
     return nearest;
-}
-
-float RLCheckpointManager::compute_state_distance(const RLStateFeatures& s1,
-                                                   const RLStateFeatures& s2) {
-    // Weighted Euclidean distance
-    float diff_temp = s1.annealing_temperature_progress - s2.annealing_temperature_progress;
-    float diff_slack = s1.worst_path_slack_ratio - s2.worst_path_slack_ratio;
-    float diff_accept = s1.recent_acceptance_rate - s2.recent_acceptance_rate;
-    float diff_crit = s1.critical_block_density - s2.critical_block_density;
-    float diff_imbal = s1.timing_vs_wirelength_imbalance - s2.timing_vs_wirelength_imbalance;
-    float diff_stale = s1.moves_since_improvement - s2.moves_since_improvement;
-
-    // Normalize slack_ratio to similar scale as other features before distance calc
-    // slack_ratio is in [-10, 10], so divide by 10 to get [-1, 1]
-    diff_slack /= 10.0f;
-
-    float weighted_sum = WEIGHT_TEMP_PROGRESS * diff_temp * diff_temp +
-                         WEIGHT_SLACK_RATIO * diff_slack * diff_slack +
-                         WEIGHT_ACCEPTANCE_RATE * diff_accept * diff_accept +
-                         WEIGHT_CRIT_DENSITY * diff_crit * diff_crit +
-                         WEIGHT_COST_IMBALANCE * diff_imbal * diff_imbal +
-                         WEIGHT_MOVES_STALE * diff_stale * diff_stale;
-
-    return std::sqrt(weighted_sum);
 }
