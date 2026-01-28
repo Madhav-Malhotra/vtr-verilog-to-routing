@@ -43,7 +43,7 @@ struct Centroid {
     std::vector<double> q_value_sum;  // Use double for accumulation precision
     size_t count;
 
-    Centroid() : count(0) {}
+    Centroid() noexcept : count(0) {}
 
     void reset(size_t q_size) {
         state = RLStateFeatures();  // Reset to defaults
@@ -437,6 +437,10 @@ int main(int argc, char* argv[]) {
                 case 0: input_file = arg; break;
                 case 1: output_file = arg; break;
                 case 2: num_clusters = std::stoul(arg); break;
+                default:
+                    std::cerr << "Unknown positional argument: " << arg << std::endl;
+                    print_usage(argv[0]);
+                    return 1;
             }
             ++positional;
         } else {
