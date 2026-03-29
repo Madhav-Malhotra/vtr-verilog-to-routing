@@ -91,6 +91,8 @@ vgcore*
 *.route
 *.out
 *.bin
+*.rpt
+*.post_routing
 
 #
 # FASM result files
